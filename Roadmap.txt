@@ -18,7 +18,7 @@ Arquivo único de configuração global, texto simples.
 Contém todas as variáveis e caminhos usados pelo sistema.
 
 DEVE CONTER:
-- Diretórios (sources, build, logs, output)
+- Diretórios (sources, build, logs, output) e o diretório de .desc /usr/src/repo (em subpastas)
 - Arquitetura (x86_64)
 - Quantidade de jobs paralelos
 - URLs de download de pacotes
@@ -27,6 +27,7 @@ DEVE CONTER:
 - Caminho do arquivo de lista de pacotes
 - Regras de reintentos em caso de falha
 - Diretório de toolchain (bootstrap)
+- Link do repositório git com os .desc,binários 
 
 
 -------------------------------------------------------
@@ -37,7 +38,7 @@ Responsável por preparar o ambiente inicial.
 DEVE FAZER:
 - Verificar se o host tem ferramentas básicas (gcc, make, bash, tar, xz)
 - Criar diretórios padrões (sources, build, logs, output)
-- Compilar toolchain mínima (binutils, gcc, glibc)
+- Compilar toolchain mínima (binutils, gcc, glibc) automaticamente usando os scripts
 - Configurar PATH e variáveis para o ambiente de build
 - Registrar logs e erros da etapa
 - Garantir ambiente limpo e reprodutível
@@ -52,9 +53,10 @@ DEVE FAZER:
 - Ler lista de pacotes ou arquivos .desc
 - Baixar os tarballs originais de cada pacote
 - Verificar integridade via SHA256 ou GPG
-- Evitar re-downloads se já existe e válido
+- Evitar re-downloads se já existe e válido (cache de fontes)
 - Registrar logs de tempo e status
 - Tratar falhas de rede com reintento automático
+- Baixar .desc ou binários do repositório git para /usr/src/repo
 
 
 -------------------------------------------------------
@@ -94,6 +96,7 @@ DEVE FAZER:
 - Ler ordem gerada pelo depsolve
 - Entrar no diretório de build de cada pacote
 - Detectar tipo de build (autotools, cmake, meson, custom)
+- Executar hooks de pré/pos prepare,configure,build (automaticamente se estiverem dentro da pasta hooks na pasta do programa)
 - Executar etapas padrão: configure → build (make/ninja)
 - Utilizar variáveis globais (CFLAGS, LDFLAGS, MAKEFLAGS)
 - Suportar builds paralelos e retomáveis
@@ -104,7 +107,7 @@ DEVE FAZER:
 -------------------------------------------------------
 7. 05-install
 -------------------------------------------------------
-Instala o pacote compilado em ambiente isolado (DESTDIR).
+Instala o pacote compilado em ambiente isolado (DESTDIR) com fakeroot.
 
 DEVE FAZER:
 - Criar DESTDIR temporário
@@ -113,17 +116,18 @@ DEVE FAZER:
 - Validar estrutura final (bin, lib, include, share)
 - Gerar lista de arquivos instalados
 - Registrar logs de instalação
+Opção de instalar binários do cache ou diretórios locais ou do repo git
 
 
 -------------------------------------------------------
 8. 06-package
 -------------------------------------------------------
-Empacota o resultado da instalação em um arquivo final.
+Empacota o resultado da instalação em um arquivo final e strip.
 
 DEVE FAZER:
 - Compactar o DESTDIR em tarball (.tar.xz ou .tar.zst)
 - Gerar metadados (nome, versão, hash, tamanho, data)
-- Salvar em diretório de saída (output/)
+- Salvar em diretório de cache
 - Registrar logs e manifestos
 - Atualizar banco de pacotes construídos
 
@@ -259,6 +263,104 @@ E registra o estado no banco de pacotes:
 ✔ Mantém histórico e rollback simples  
 ✔ Ideal para sistemas de compilação estáveis (como T2, LFS, BLFS)
 
+DEPENDÊNCIAS EM ATUALIZAÇÃO DE PACOTES
+======================================
+
+1. PROBLEMA PRINCIPAL
+---------------------
+Quando você atualiza um pacote, as dependências dele podem:
+
+- Não ter mudado → tudo ok
+- Ter uma versão mínima maior → pode ser necessário atualizar também
+- Ter mudado de forma incompatível → pode quebrar outros pacotes que dependem da versão antiga
+
+Exemplo: Firefox 118 → 119
+- Firefox 119 pode exigir Rust >= 1.77
+- Se a versão antiga do Rust era 1.76, você precisa atualizar Rust primeiro
+
+Portanto, **não basta atualizar só o pacote** — precisa checar todas as dependências.
+
+
+2. FLUXO DE DEPENDÊNCIAS DURANTE UPDATE
+----------------------------------------
+Ao executar `pkg update <pacote>`:
+
+1. Lê o .desc atual do pacote
+2. Busca a nova versão estável no mainstream
+3. Baixa ou valida tarball + SHA256
+4. Antes de build:
+   - O script **depsolve** é chamado novamente, **agora usando a versão nova**
+   - Verifica:
+       a) Todas as BUILD_DEPS atendidas
+       b) RUN_DEPS compatíveis
+5. Para qualquer dependência que precise ser atualizada, o sistema:
+   - Adiciona na fila de atualização
+   - Executa update dessas dependências **antes do pacote principal**
+6. Após dependências corretas, atualiza o pacote principal
+7. Opcional: mantém registro das versões antigas (rollback)
+
+
+3. COMO LIDAR COM DEPENDÊNCIAS DE VERSÃO ANTERIOR
+---------------------------------------------------
+- Cada pacote mantém no banco local:
+      installed.db:
+        - NAME
+        - VERSION
+        - BUILD_DEPS
+        - RUN_DEPS
+
+- Quando o update detecta que a nova versão exige dependências maiores:
+      - Verifica banco local
+      - Se a dependência atual < exigida:
+          → agenda atualização da dependência primeiro
+      - Se a dependência atual >= exigida:
+          → não faz nada, mantém
+
+- Isso garante que **dependências da versão anterior** não bloqueiem o update,
+  mas também não quebra pacotes que dependem dela.
+
+
+4. ESTRATÉGIA DE ESTABILIDADE
+------------------------------
+- Só atualiza dependências se necessário (min_version > versão atual)
+- Mantém pacotes não afetados intactos
+- Pode criar "locks" para versões críticas (ex: GTK ou glib)
+- Permite reconstrução em ordem topológica correta: dependência → pacote dependente
+
+
+5. FLUXO COMPLETO DE UPDATE COM DEPENDÊNCIAS
+--------------------------------------------
+pkg update firefox
+ ├─> lê firefox.desc
+ ├─> busca nova versão estável
+ ├─> atualiza .desc temporário
+ ├─> depsolve(build_deps + run_deps da nova versão)
+ │     ├─> detecta que Rust precisa ser >=1.77
+ │     ├─> agenda update rustc antes
+ │     └─> agenda update gtk3, dbus se necessário
+ ├─> executa updates das dependências em ordem correta
+ ├─> build nova versão do firefox
+ ├─> install nova versão
+ ├─> hooks pós-build/pós-install
+ └─> log completo + backup .desc antigo
+
+
+6. RESUMO
+----------
+✔ Dependências da versão antiga não bloqueiam update  
+✔ O sistema resolve **automaticamente** dependências mínimas da versão nova  
+✔ Ordem topológica garante que nada quebre  
+✔ Logs e backup permitem rollback se algo falhar  
+✔ Funciona para pacotes complexos como Firefox, KDE ou GNOME  
+
+Conclusão:
+- Sim, funciona com dependências da versão anterior, desde que o update **verifique os requisitos mínimos da nova versão** antes de compilar.
+- Esse é o comportamento adotado por gerenciadores de pacotes robustos (ex: Portage, pkgsrc, Gentoo, FreeBSD ports).
+
+-------------------------------------------------------
+FIM DO DOCUMENTO
+-------------------------------------------------------
+
 
 8. EXEMPLO DE ATUALIZAÇÃO
 --------------------------
@@ -328,9 +430,29 @@ DEVE FAZER:
   - Logs de referência
 
 ----------------------------------------------------------
- Estrutura Exemplo de um config.txt
+ Estrutura Exemplo de um master.conf
 ----------------------------------------------------------
-
+ROOT = ./auto-builder
+ARCH = x86-64
+MODE = native
+PARALLELISM = 2
+SRC_DIR = ${ROOT}/sources
+WORK_DIR = ${ROOT}/work
+ARTIFACT_DIR = ${ROOT}/artifacts
+LOG_DIR = ${ROOT}/logs
+DB_DIR = ${ROOT}/db
+PKG_DIR = ${ROOT}/packages
+MIRRORS = https://ftp.gnu.org/gnu
+RETRY_LIMIT = 2
+RETRY_BACKOFF = 5
+CFLAGS = -O2 -pipe
+MAKEFLAGS = -j2
+CLEAN_ON_START = no
+KEEP_LOGS = yes
+ALLOW_CROSS = false
+BOOTSTRAP_MODE = auto
+TAR_BIN = tar
+ZSTD_BIN = zstd
 
 -------------------------------------------------------
 12. Estrutura de pacotes (.desc)
