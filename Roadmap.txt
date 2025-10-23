@@ -317,7 +317,7 @@ O “cérebro” do sistema — orquestra todas as fases automaticamente.
 DEVE FAZER:
 - Ler config.txt e validar variáveis
 - Chamar scripts na sequência:
-    bootstrap → fetch → extract → depsolve → build → install → package → clean
+- bootstrap → fetch → extract → depsolve → build → install → package → clean
 - Controlar dependências e status entre fases
 - Reexecutar automaticamente etapas falhas se permitido
 - Registrar progresso global e erros
@@ -326,6 +326,10 @@ DEVE FAZER:
   - Pacotes construídos
   - Falhas
   - Logs de referência
+
+----------------------------------------------------------
+ Estrutura Exemplo de um config.txt
+----------------------------------------------------------
 
 
 -------------------------------------------------------
@@ -339,7 +343,8 @@ DEVE CONTER:
 - RUN_DEPS (dependências de execução)
 - BUILD_HINT (tipo de build: autotools, cmake, meson)
 - COMMENT (descrição)
-- STAGE (nível de prioridade: core, libs, desktop, apps)
+- CATEGORY (diretório específico: core, libs, desktop, apps, xorg, extras, bootstrap, www)
+- STAGE (stagios: stage1, stage2, stage3)
 - OPTIONS (opcionais, ex: wayland, pulseaudio)
 
 Esses arquivos são usados pelo 01-fetch e 03-depsolve.
@@ -383,13 +388,14 @@ Arquivo: package/base/bc/bc.desc
 -----------------------------------
 NAME = bc
 VERSION = 1.08.2
-URL = https://ftp.gnu.org/gnu/bc/bc-1.08.2.tar.xz
+URL = https://ftp.gnu.org/gnu/$NAME/$NAME-$VERSION.tar.xz
 SHA256 = 76e3a9531c7764bd13c600c1e016e6760d9b8379ba06d1ecc08d5a68
 BUILD_DEPS = readline
 RUN_DEPS =
 BUILD_HINT = autotools
-STAGE = 1
+STAGE = 2
 PRIORITY = normal
+CATEGORY = base
 -----------------------------------
 
 
@@ -404,6 +410,8 @@ RUN_DEPS .... Dependências de execução (vazias aqui)
 BUILD_HINT .. Indica o tipo de build usado (autotools, cmake, meson, custom)
 STAGE ....... Ordem geral do sistema (1 = base, 2 = libs, 3 = apps)
 PRIORITY .... Define a prioridade de execução na fila (normal, low, high)
+
+Observação: Se BUILD_HINT = custom (usar uma função BUILD_HINT para fazer a construcao customizada do programa no .desc,quando nao selecionado em BUILD_HINT e opcional e pode ser ocultada do .desc.
 
 
 COMPORTAMENTO DO SISTEMA
