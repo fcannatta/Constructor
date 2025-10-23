@@ -1,141 +1,97 @@
 # ============================================
 # CONFIGURAÇÃO GLOBAL DO SISTEMA DE BUILD
-# Versão do motor: 1.1
-# Data: $(date +%Y-%m-%d)
 # ============================================
 
-
-# =========================================================
-# 🔹 1. DIRETÓRIOS PRINCIPAIS
-# =========================================================
+# Diretório raiz do sistema
 ROOT_DIR="/opt/buildsystem"
 
-SRC_DIR="$ROOT_DIR/sources"        # Tarballs originais
-BUILD_DIR="$ROOT_DIR/build"        # Diretórios temporários de build
-LOG_DIR="$ROOT_DIR/logs"           # Logs por pacote e globais
-OUTPUT_DIR="$ROOT_DIR/output"      # Pacotes finais (.tar.xz)
-TOOLCHAIN_DIR="$ROOT_DIR/toolchain"# Toolchain mínima (bootstrap)
-DB_DIR="/var/lib/pkgdb"            # Banco de pacotes instalados
-HOOKS_DIR="/hooks"                 # Hooks pré/pós-build/update
+# Estrutura principal de diretórios
+SRC_DIR="$ROOT_DIR/sources"          # Fontes originais (.tar, .zip, etc)
+PKG_REPO_LOCAL="$ROOT_DIR/package"   # Diretório onde ficam os .desc
+BUILD_DIR="$ROOT_DIR/build"          # Diretórios temporários de compilação
+OUTPUT_DIR="$ROOT_DIR/output"        # Pacotes prontos (.tar.xz)
+LOG_DIR="$ROOT_DIR/logs"             # Logs gerais
+DB_DIR="$ROOT_DIR/db"                # Banco de pacotes instalados
+HOOKS_DIR="$ROOT_DIR/hooks"          # Hooks pré/pós build
+TOOLCHAIN_DIR="$ROOT_DIR/toolchain"  # Toolchain local (bootstrap)
+STATUS_DIR="$ROOT_DIR/status"        # Status e relatórios
+GRAPHS_DIR="$ROOT_DIR/graphs"        # Mapas e grafos de dependências
+TMP_DIR="/tmp/buildsystem"           # Fallback temporário
 
+# Repositórios Git
+PKG_REPO_GIT="https://github.com/SEU_USUARIO/seu-repo-pacotes.git"
+PKG_REPO_BRANCH="main"
+BIN_REPO_GIT="https://github.com/SEU_USUARIO/seu-repo-binarios.git"
+BIN_REPO_BRANCH="main"
+AUTO_SYNC_PKG_REPO="yes"
+AUTO_SYNC_BIN_REPO="no"
 
-# =========================================================
-# 🔹 2. AMBIENTE E ARQUITETURA
-# =========================================================
+# Ambiente e arquitetura
 ARCH="x86_64"
-JOBS="$(nproc)"         # Número de threads paralelas
+JOBS="$(nproc)"
 LANG="C"
 LC_ALL="C"
 
-
-# =========================================================
-# 🔹 3. FLAGS GLOBAIS DE COMPILAÇÃO
-# =========================================================
+# Flags de compilação
 CFLAGS="-O2 -pipe -fPIC"
 CXXFLAGS="-O2 -pipe -fPIC"
 LDFLAGS="-Wl,-O1 -Wl,--as-needed"
 MAKEFLAGS="-j${JOBS}"
 
+# Comportamento geral
+SILENT_MODE="no"           # yes = menos saída no terminal
+CONTINUE_ON_FAIL="no"      # Interrompe em erro crítico
+CLEAN_BEFORE_BUILD="no"
+SAVE_LOGS="yes"
+RETRY_COUNT=3
+AUTO_RETRY="yes"
 
-# =========================================================
-# 🔹 4. POLÍTICAS DE EXECUÇÃO E REEXECUÇÃO
-# =========================================================
-RETRY_COUNT=3            # Quantas vezes reexecutar em falha de rede
-AUTO_RETRY="yes"         # Tentar novamente automaticamente
-CONTINUE_ON_FAIL="no"    # Interrompe na primeira falha crítica
-CLEAN_BEFORE_BUILD="no"  # Limpa diretório antes de rebuild
-SAVE_LOGS="yes"          # Sempre manter logs individuais
-
-
-# =========================================================
-# 🔹 5. FONTES DE PACOTES E REPOSITÓRIOS GIT
-# =========================================================
-# Repositório Git que contém os pacotes (.desc, patches, etc)
-PKG_REPO_GIT="https://github.com/SEU_USUARIO/seu-repo-pacotes.git"
-PKG_REPO_BRANCH="main"
-PKG_REPO_LOCAL="$ROOT_DIR/package"   # Pasta onde será clonado/sincronizado
-
-# (Opcional) Repositório Git com pacotes binários prontos
-BIN_REPO_GIT="https://github.com/SEU_USUARIO/seu-repo-binarios.git"
-BIN_REPO_BRANCH="main"
-BIN_REPO_LOCAL="$ROOT_DIR/binaries"
-
-# Política de sincronização automática
-AUTO_SYNC_PKG_REPO="yes"   # Se "yes", o controller fará git pull antes dos builds
-AUTO_SYNC_BIN_REPO="no"    # Ative se quiser atualizar pacotes binários também
-
-
-# =========================================================
-# 🔹 6. MIRRORS GLOBAIS (FONTES ALTERNATIVAS DE DOWNLOAD)
-# =========================================================
-# Usados como fallback se a URL original de um pacote falhar
+# Fontes alternativas e mirrors
 MIRRORS=(
   "https://ftp.gnu.org/gnu"
   "https://ftp.mozilla.org/pub"
   "https://download.kde.org/stable"
   "https://github.com"
 )
-TIMEOUT=30   # Timeout de download em segundos
+TIMEOUT=30
+MAX_FETCH_JOBS=4           # Número máximo de downloads simultâneos
 
+# Políticas de atualização
+UPDATE_POLICY="major_only"
+ALLOW_BETA="no"
+AUTO_BACKUP_DESC="yes"
+ROLLBACK_ENABLED="yes"
 
-# =========================================================
-# 🔹 7. DEPENDÊNCIAS E LISTA DE PACOTES
-# =========================================================
-PKG_LIST="$ROOT_DIR/package-list.txt"  # Lista principal de pacotes a construir
-DEPSOLVE_MODE="strict"                 # strict = todas dependências resolvidas
-ALLOW_OPTIONAL_DEPS="yes"              # Inclui dependências opcionais (flags)
+# Dependências
+PKG_LIST="$ROOT_DIR/package-list.txt"
+DEPSOLVE_MODE="strict"
+ALLOW_OPTIONAL_DEPS="yes"
+ENABLE_OPTIONAL_GNOME="yes"
+ENABLE_OPTIONAL_KDE="no"
+ENABLE_OPTIONAL_PULSEAUDIO="yes"
 
-
-# =========================================================
-# 🔹 8. POLÍTICAS DE ATUALIZAÇÃO
-# =========================================================
-UPDATE_POLICY="major_only"     # Atualiza apenas versões principais
-ALLOW_BETA="no"                # Ignora versões beta/rc
-AUTO_BACKUP_DESC="yes"         # Cria backup automático do .desc anterior
-ROLLBACK_ENABLED="yes"         # Permite rollback em falhas de update
-
-
-# =========================================================
-# 🔹 9. FERRAMENTAS OBRIGATÓRIAS DO HOST
-# =========================================================
+# Ferramentas obrigatórias
 REQUIRED_TOOLS=(
   gcc make bash tar xz curl git sha256sum gpg
 )
 
+# Segurança e assinaturas
+VERIFY_SIGNATURES="yes"
+GPG_KEYRING="$ROOT_DIR/keys/pubring.gpg"
 
-# =========================================================
-# 🔹 10. LOGS E RELATÓRIOS
-# =========================================================
+# Logs e relatórios
 MASTER_LOG="$LOG_DIR/build-master.log"
 SUMMARY_JSON="$LOG_DIR/build-summary.json"
-LOG_FORMAT="text"       # text | json
+LOG_FORMAT="text"
+REPORT_FORMAT="text"
+REPORT_PATH="$LOG_DIR/final-report.txt"
 
-
-# =========================================================
-# 🔹 11. HOOKS DE EVENTOS
-# =========================================================
+# Hooks
 ENABLE_HOOKS="yes"
 HOOKS_PRE_BUILD="$HOOKS_DIR/pre-build"
 HOOKS_POST_INSTALL="$HOOKS_DIR/post-install"
 HOOKS_POST_UPDATE="$HOOKS_DIR/post-update"
 
-
-# =========================================================
-# 🔹 12. SEGURANÇA E ASSINATURAS
-# =========================================================
-VERIFY_SIGNATURES="yes"
-GPG_KEYRING="$ROOT_DIR/keys/pubring.gpg"
-
-
-# =========================================================
-# 🔹 13. RELATÓRIO FINAL
-# =========================================================
-REPORT_FORMAT="text"                   # text | json
-REPORT_PATH="$LOG_DIR/final-report.txt"
-
-
-# =========================================================
-# 🔹 14. VARIÁVEIS DERIVADAS (geradas em runtime)
-# =========================================================
+# Variáveis derivadas
 DATE_NOW="$(date +%Y-%m-%d_%H-%M)"
 HOSTNAME="$(hostname)"
